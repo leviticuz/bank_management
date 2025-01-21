@@ -442,6 +442,52 @@ class User(ATMUser):
         print("User Logged In")
         return 0
     
+    def view_details(self, user_id):
+        utilities.clear_screen()
+        
+        conn = sqlite3.connect('atm.db')
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM users WHERE user_id = ?",(user_id,))
+        result = cursor.fetchone()
+        
+        print("User Information\n")
+        print("Name ", result[1])
+        print("Age ", result[2])
+        print("Address ", result[3])
+        print("Birthday ", result[6])
+        print("Phone ", result[7])
+        print("Email ", result[8])
+        
+        utilities.wait()
+        return screen.routePage()
+    
+    def view_transactions(self, user_id):
+        utilities.clear_screen()
+        
+        conn = sqlite3.connect('atm.db')
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT t.transaction_id, t.transaction_type, t.amount, t.timestamp, t.balance_after, COALESCE(s.name, 'N/A')
+            FROM transactions t
+            LEFT JOIN staff s ON t.staff_id = s.staff_id
+            WHERE t.user_id = ?
+            ORDER BY t.timestamp DESC
+        """, (user_id,))
+        results = cursor.fetchall()
+        
+        print("Transactions\n")
+        for result in results:
+            print(f"Transaction ID: {result[0]}")
+            print(f"Transaction Type: {result[1]}")
+            print(f"Amount: ₱{result[2]}")
+            print(f"Balance After: ₱{result[4]}")
+            print(f"Timestamp: {result[3]}")
+            print(f"Staff Name: {result[5]}\n")
+        
+        utilities.wait()
+        return screen.routePage()
     
     def change_password(self, pin):
         while True:
@@ -477,9 +523,75 @@ class User(ATMUser):
                 print("Passwords Do Not Match!")
                 utilities.wait()
     
-    def withdraw(self, amouunt):
-        print("Amount Withdrawn")
-        return 0
+    def withdraw(self, user_id):
+        utilities.clear_screen()
+        balance = database_Functions.fetch_balance()
+        Balance = float(balance)
+        
+        conn = sqlite3.connect('atm.db')
+        cursor = conn.cursor()
+        
+        if Balance == 0:
+            utilities.clear_screen()
+            print("Insufficient Funds. Please Proceed to a staff to deposit")
+            utilities.wait()
+            screen.routePage()
+        
+        while True:
+            print("Withdraw\n")
+            print("Actual Balance:₱", balance)
+            print("Withdrawal Amount:₱ ", end="", flush=True)
+            withdraw = utilities.capture_input()
+            if withdraw == None:
+                screen.routePage()
+            if utilities.isDouble(withdraw):
+                number = float(withdraw)
+                if number > Balance:
+                    utilities.clear_screen()
+                    print("Insufficient Funds")
+                    utilities.wait()
+                else:
+                    break 
+            else:
+                utilities.clear_screen()
+                print("Invalid Deposit")
+                utilities.wait()
+        
+        utilities.clear_screen()
+        balance_after = Balance - number
+        
+        print("Withdrawal Receipt\n")
+        print("Actual Balance:₱", balance)
+        print("Withdrawal Amount:₱ ", withdraw)
+        print("Balance After Withdrawal:₱ ", balance_after)
+        
+        print("\nPress Enter to Continue or ESC to Cancel")
+        while True:
+            key = msvcrt.getch()
+            if key == b'\r':  
+                try:
+                    transaction_type = "withdraw"
+                    cursor.execute(
+                        "INSERT INTO transactions(user_id, staff_id, transaction_type, amount, balance_after) VALUES (?,?,?,?,?)",
+                        (user_id, 0, transaction_type, number, balance_after)
+                    )
+                    cursor.execute("UPDATE users SET balance = ? WHERE user_id = ?",(balance_after, user_id))
+                    
+                    conn.commit()
+                    
+                    utilities.clear_screen()
+                    print("Withdrawal Successful!")
+                    utilities.wait()
+                except sqlite3.Error as e:
+                    utilities.clear_screen()
+                    print(f"\nError on withdrawal: {e}")
+                    utilities.wait()
+                finally:
+                    conn.close()
+                    return screen.routePage()
+            elif key == b'\x1b':
+                utilities.clear_screen()  
+                return screen.routePage()
     
 #Database Functions
 class database_Functions():
@@ -816,7 +928,20 @@ class database_Functions():
         
         conn.close()
         return password[0]
-    
+
+    #Fetching Balance
+    def fetch_balance():
+        conn = sqlite3.connect('atm.db')
+        cursor = conn.cursor()
+        
+        temp = UserContext.get_user()
+        user_id = temp["user_id"]
+        
+        cursor.execute("SELECT balance FROM users WHERE user_id = ?",(user_id,))
+        balance = cursor.fetchone()
+        
+        conn.close()
+        return balance[0]
 #For Listings
 class fetch_list():
     #Fetching User List
@@ -859,9 +984,9 @@ class fetch_list():
         print("Balance:  ", user_info[9])
         
         cursor.execute("""
-            SELECT t.transaction_id, t.transaction_type, t.amount, t.timestamp, t.balance_after, s.name
+            SELECT t.transaction_id, t.transaction_type, t.amount, t.timestamp, t.balance_after, COALESCE(s.name, 'N/A')
             FROM transactions t
-            JOIN staff s ON t.staff_id = s.staff_id
+            LEFT JOIN staff s ON t.staff_id = s.staff_id
             WHERE t.user_id = ?
         """, (user_id,))
         transactions = cursor.fetchall()
@@ -871,9 +996,9 @@ class fetch_list():
             for txn in transactions:
                 print(f"Transaction ID: {txn[0]}")
                 print(f"Transaction Type: {txn[1]}")
-                print(f"Amount: {txn[2]}")
+                print(f"Amount:₱ {txn[2]}")
                 print(f"Timestamp: {txn[3]}")
-                print(f"Balance After: {txn[4]}")
+                print(f"Balance After:₱ {txn[4]}")
                 print(f"Staff Name: {txn[5]}\n")
         else:
             print("\nNo transactions found for this user.")
@@ -943,7 +1068,7 @@ class fetch_list():
                 print(f"User Name: {txn[5]}")
                 print(f"Amount: {txn[2]}")
                 print(f"Timestamp: {txn[3]}")
-                print(f"Balance After: {txn[4]}")
+                print(f"Balance After: {txn[4]}\n")
         else:
             print("\nNo transactions found for this user.")
         
@@ -955,6 +1080,90 @@ class fetch_list():
         elif key == b'\r':  
             fetch_list.staff_list()
 
+    #Fetching User List for Deposit
+    def deposit():
+        utilities.clear_screen()
+        conn = sqlite3.connect('atm.db')
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM users")
+        rows = cursor.fetchall()
+        
+        if len(rows) == 0:
+            utilities.clear_screen()
+            print("No Records")
+            utilities.wait()
+            return screen.routePage()
+        
+        print("User List\n")
+        for index, row in enumerate(rows, start=1):
+            print(f"{index}. {row[1]}")
+            
+        print("Choose User: ", end="", flush=True)
+        opt = utilities.capture_input()
+        if opt == None:
+            screen.routePage()
+            
+        user_id = rows[int(opt) - 1][0]
+        
+        utilities.clear_screen()
+        
+        cursor.execute("SELECT * FROM users WHERE user_id = ?",(user_id,))
+        result = cursor.fetchone()
+        
+        print("User Account\n")
+        print("Actual Balance:₱", result[9])
+        
+        while True:
+            amount = input("Deposit Amount:₱ ")
+            if utilities.isDouble(amount):
+                number = float(amount)
+                break
+            else:
+                utilities.clear_screen()
+                print("Invalid Deposit")
+                utilities.wait()
+        
+        actual = int(result[9])
+        balance = actual + number
+        
+        temp=UserContext.get_user()
+        staff_id = temp["user_id"]
+        
+        utilities.clear_screen()
+        print("Deposit Receipt\n")
+        print("Actual Balance:₱ ", result[9])
+        print("Amount to be Deposited:₱", amount)
+        print("Balance after making the deposit:₱", balance)
+        
+        print("\nPress Enter to Continue or ESC to Cancel")
+        while True:
+            key = msvcrt.getch()
+            if key == b'\r':  
+                try:
+                    transaction_type = "deposit"
+                    cursor.execute(
+                        "INSERT INTO transactions(user_id, staff_id, transaction_type, amount, balance_after) VALUES (?,?,?,?,?)",
+                        (user_id, staff_id, transaction_type, number, balance)
+                    )
+                    cursor.execute("UPDATE users SET balance = ? WHERE user_id = ?",(balance, user_id))
+                    
+                    conn.commit()
+                    
+                    utilities.clear_screen()
+                    print("Deposit Successful!")
+                    utilities.wait()
+                except sqlite3.Error as e:
+                    utilities.clear_screen()
+                    print(f"\nError on depositing: {e}")
+                    utilities.wait()
+                finally:
+                    conn.close()
+                    return screen.routePage()
+            elif key == b'\x1b':
+                utilities.clear_screen()  
+                return screen.routePage()
+        
 #First Login
 class first_login:   
     def staff_login():
@@ -1091,6 +1300,8 @@ class screen():
             staff = Staff(staff_id)
             password = database_Functions.fetch_staff()
             staff.change_password(password)
+        elif choice == "3":
+            fetch_list.deposit()
         elif choice == "2":
             temp=UserContext.get_user()
             staff_id = temp["user_id"]
@@ -1105,24 +1316,43 @@ class screen():
         
         first_login.user_login()
         
+        balance = database_Functions.fetch_balance()
+        print("Balance:₱", balance)
+        
         print("\n=== User Dashboard ===")
         print("1. View Account Details")
-        print("2. Withdraw Money")
-        print("3. Change Password")
-        print("4. Logout")
+        print("2. View Transactions")
+        print("3. Withdraw Money")
+        print("4. Change Password")
+        print("5. Logout")
         choice = input("Enter your choice: ")
-        if choice == "4":
+        if choice == "5":
             UserContext.clear_user()
             utilities.clear_screen()
             print("\nLogged out successfully.\n")
             utilities.wait()
             screen.landingPage()
-        elif choice == "2":
+        elif choice == "3":
+            temp=UserContext.get_user()
+            user_id = temp["user_id"]
+            user = User(user_id)
+            user.withdraw(user_id)
+        elif choice == "4":
             temp=UserContext.get_user()
             user_id = temp["user_id"]
             user = User(user_id)
             password = database_Functions.fetch_user()
             user.change_password(password)
+        elif choice == "2":
+            temp=UserContext.get_user()
+            user_id = temp["user_id"]
+            user = User(user_id)
+            user.view_transactions(user_id)
+        elif choice == "1":
+            temp=UserContext.get_user()
+            user_id = temp["user_id"]
+            user = User(user_id)
+            user.view_details(user_id)
 
 # Main function
 def main():
