@@ -362,6 +362,40 @@ class Owner(ATMUser):
         print("Welcome Owner")
         return 0
     
+    def change_password(self, old_password):
+        while True:
+            utilities.clear_screen()
+            print("Change Password\n")
+            password = input("Enter old password: ")
+            hashed_password = utilities.hash_value(password)
+            
+            if hashed_password == old_password:
+                break
+            else:
+                utilities.clear_screen()
+                print("Wrong Password!")
+                utilities.wait()
+        
+        while True:
+            utilities.clear_screen()
+            print("Change Password\n")
+            
+            password = input("Enter New Password: ")
+            confirm_password = input("Confirm Password:   ")
+            
+            if password == confirm_password:
+                temp = utilities.validate_password(password)
+                if temp == True:
+                    database_Functions.owner_password(password)
+                else:
+                    utilities.clear_screen()
+                    print(temp)
+                    utilities.wait()
+            else:
+                utilities.clear_screen()
+                print("Passwords Do Not Match!")
+                utilities.wait() 
+
     def hire_staff(self):
         name = utilities.staff_name()
         age = utilities.age()
@@ -788,6 +822,36 @@ class database_Functions():
             cursor.close()
             conn.close()
             screen.routePage()
+    
+    def owner_password(password):
+        conn = sqlite3.connect('atm.db')
+        cursor = conn.cursor()
+        
+        utilities.clear_screen()
+        temp = UserContext.get_user()
+        
+        owner_id = temp["user_id"]
+        hashed_password = utilities.hash_value(password)
+        
+        try:
+            cursor.execute(
+                "UPDATE owner SET password = ? WHERE owner_id = ?",
+                (hashed_password, owner_id)
+            )
+            conn.commit()
+            
+            utilities.clear_screen()
+            print("Password successfully updated.")
+            utilities.wait()
+        except Exception as e:
+            utilities.clear_screen()
+            print("An error occurred while updating the password:", str(e))
+            utilities.wait()
+            screen.routePage()
+        finally:
+            cursor.close()
+            conn.close()
+            screen.routePage()
 
     #For Fetching Staff Password
     def fetch_staff():
@@ -802,6 +866,21 @@ class database_Functions():
         
         conn.close()
         return password[0]
+    
+    #For Fetching Owner Password
+    def fetch_owner():
+        conn = sqlite3.connect('atm.db')
+        cursor = conn.cursor()
+        
+        temp = UserContext.get_user()
+        owner_id = temp["user_id"]
+        
+        cursor.execute("SELECT password FROM owner WHERE owner_id = ?",(owner_id,))
+        password = cursor.fetchone()
+        
+        conn.close()
+        return password[0]
+
     
     #For registering user
     def user_register(name, age, birthday, address, phone, email):
@@ -1252,14 +1331,21 @@ class screen():
         print("1. View All Staffs")
         print("2. View All Users")
         print("3. Hire Staff")
-        print("4. Logout")
+        print("4. Change Password")
+        print("5. Logout")
         choice = input("\nEnter your choice: ")
-        if choice == "4":
+        if choice == "5":
             UserContext.clear_user()
             utilities.clear_screen()
             print("\nLogged out successfully.\n")
             utilities.wait()
             screen.landingPage()
+        elif choice == "4":
+            temp=UserContext.get_user()
+            owner_id = temp["user_id"]
+            owner = Owner(owner_id)
+            password = database_Functions.fetch_owner()
+            owner.change_password(password)
         elif choice == "3":
             current_user = UserContext.get_user()
             user_id = current_user["user_id"]
